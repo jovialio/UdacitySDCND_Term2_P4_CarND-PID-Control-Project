@@ -1,6 +1,8 @@
 #ifndef PID_H
 #define PID_H
 
+#include <deque>
+
 class PID {
 public:
   /*
@@ -16,6 +18,26 @@ public:
   double Kp;
   double Ki;
   double Kd;
+
+  /*
+  * Twiddle Coefficients
+  */
+  std::deque<double> p;
+  std::deque<double> dp;
+
+  /*
+  * Twiddle State
+  * 0 - Twiddle Kp / 1 - Twiddle Ki / 2 - Twiddle Kd
+  * twiddle_update is 0 if first update and 1 if 2nd update for each coefficient
+  */
+  int twiddle_state;
+  int twiddle_update;
+
+  /*
+  * best error value captured by pid controller
+  */
+  double best_err;
+
 
   /*
   * Constructor
@@ -41,6 +63,11 @@ public:
   * Calculate the total PID error.
   */
   double TotalError();
+
+  /*
+  * Perform Twiddle
+  */
+  void twiddle(double cte);
 };
 
 #endif /* PID_H */

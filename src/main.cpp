@@ -3,6 +3,11 @@
 #include "json.hpp"
 #include "PID.h"
 #include <math.h>
+#include <deque>
+
+#define HISTORY_SIZE 20
+#define TOL 0.01
+#define TWIDDLE false
 
 // for convenience
 using json = nlohmann::json;
@@ -35,13 +40,22 @@ int main()
   PID pid;
   // TODO: Initialize the pid variable.
 
-  h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
+  // Manual tuned to 0.1, 0.001, 2.5 speed 0.4
+  pid.Init(0.1, 0.001, 1.5);
+
+  std::deque<double> err_history;
+
+  double total_err = std::numeric_limits<double>::max();
+
+  bool new_data_flag = false;
+
+  h.onMessage([&pid, &err_history, &total_err, &new_data_flag](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
     if (length && length > 2 && data[0] == '4' && data[1] == '2')
     {
-      auto s = hasData(std::string(data).substr(0, length));
+      auto s = hasData(std::string(data));
       if (s != "") {
         auto j = json::parse(s);
         std::string event = j[0].get<std::string>();
@@ -57,13 +71,38 @@ int main()
           * NOTE: Feel free to play around with the throttle and speed. Maybe use
           * another PID controller to control the speed!
           */
+
+          // Run twiddle if twiddle is turned on for training
+          if(TWIDDLE){
+            // store error history, square of cte
+            err_history.push_back(pow(cte,2.0));
+
+            // calculate total_err and clear history once reaches HISTORY_SIZE
+            if(err_history.size() == HISTORY_SIZE){
+
+              new_data_flag = true;
+              total_err = std::accumulate(err_history.begin(), err_history.end(), 0.0);
+              err_history.clear();
+
+            }
+
+            // twiddle only if sum of dp is greater than tolerance and new data is available
+            if(pid.dp[0]+pid.dp[1]+pid.dp[2] > TOL && new_data_flag){
+              pid.twiddle(total_err);
+              new_data_flag = false;
+            }
+          }
+          
+          pid.UpdateError(cte);
+          steer_value = pid.TotalError();
           
           // DEBUG
-          std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
+          std::cout << "Kp: " << pid.p[0] << " Ki: " << pid.p[1] << " Kd: " << pid.p[2] << std::endl;
+          std::cout << "CTE: " << cte << " Steering Value: " << steer_value << " Speed: " << speed << std::endl;
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = 0.3;
+          msgJson["throttle"] = 0.4;
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
